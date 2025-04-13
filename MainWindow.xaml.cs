@@ -26,6 +26,7 @@ using Hardcodet.Wpf.TaskbarNotification; // Add this namespace
 using Microsoft.Win32; // For Registry access
 using System.Runtime.InteropServices; // Needed for DllImport
 using System.Windows.Interop; // Needed for HwndSource
+using System.Reflection; // For Assembly.GetExecutingAssembly()
 
 namespace LLMChatWindow;
 
@@ -40,7 +41,7 @@ public class AppSettings
 /// <summary>
 /// Interaction logic for MainWindow.xaml
 /// </summary>
-public partial class MainWindow : MetroWindow
+public partial class MainWindow : MetroWindow, INotifyPropertyChanged
 {
     // --- ChatMessage Class implements INotifyPropertyChanged ---
     public class ChatMessage : INotifyPropertyChanged
@@ -128,13 +129,131 @@ public partial class MainWindow : MetroWindow
 
     private HwndSource? _source;
 
-    public MainWindow()
+    // --- INotifyPropertyChanged Implementation ---
+    public event PropertyChangedEventHandler? PropertyChanged;
+    protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
-        EnsureAppDirectoryExists(); // Ensure directory exists before loading/saving
-        LoadSettings(); // Load settings first
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+    // ----------------------------------------
+
+    // --- AutoStart Property and Logic ---
+    private const string AutoStartRegistryKey = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run";
+    private const string AutoStartValueName = "LLMChatWindow"; // Unique name for registry value
+
+    private bool _isAutoStartEnabled;
+    public bool IsAutoStartEnabled
+    {
+        get => _isAutoStartEnabled;
+        set
+        {
+            if (_isAutoStartEnabled != value)
+            {
+                _isAutoStartEnabled = value;
+                SetAutoStart(value);
+                OnPropertyChanged(); // Notify UI of change
+            }
+        }
+    }
+
+    private void CheckAutoStartStatus()
+    {
+        try
+        {
+            using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, false))
+            {
+                object? value = key?.GetValue(AutoStartValueName);
+                // Check if the value exists and potentially matches the current executable path
+                // For simplicity, we just check if the value exists.
+                _isAutoStartEnabled = value != null;
+                OnPropertyChanged(nameof(IsAutoStartEnabled)); // Notify initial state
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error checking auto-start status: {ex.Message}");
+            _isAutoStartEnabled = false; // Assume false on error
+             OnPropertyChanged(nameof(IsAutoStartEnabled));
+        }
+    }
+
+    private void SetAutoStart(bool enable)
+    {
+        try
+        {
+            using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, true)) // Open with write access
+            {
+                if (key == null)
+                {
+                    Debug.WriteLine("Could not open Run registry key for writing.");
+                    return;
+                }
+
+                // Use Process.GetCurrentProcess().MainModule.FileName for potentially more reliable path,
+                // especially if not running directly from .exe location (like during debugging).
+                // Fallback to Assembly location if MainModule is null.
+                string? executablePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if(string.IsNullOrEmpty(executablePath))
+                {
+                    executablePath = Assembly.GetExecutingAssembly().Location;
+                     // For ClickOnce, Location might still be the AppManifest. A truly robust solution
+                     // for ClickOnce would involve finding the .appref-ms shortcut.
+                     // Let's keep this simpler version for now.
+                }
+
+                if (string.IsNullOrEmpty(executablePath))
+                {
+                     Debug.WriteLine("Could not determine executable path for auto-start.");
+                     return;
+                }
+
+                if (enable)
+                {
+                    // Correct syntax for string interpolation with literal quotes inside:
+                    key.SetValue(AutoStartValueName, $"\"{executablePath}\"");
+                    Debug.WriteLine($"Enabled auto-start: Added registry value '{AutoStartValueName}' with path '{executablePath}'.");
+                }
+                else
+                {
+                    if (key.GetValue(AutoStartValueName) != null)
+                    {
+                         key.DeleteValue(AutoStartValueName, false); // Do not throw if not found
+                         Debug.WriteLine($"Disabled auto-start: Removed registry value '{AutoStartValueName}'.");
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error setting auto-start status: {ex.Message}");
+            MessageBox.Show($"Failed to update auto-start setting: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            // Revert the property change to keep UI consistent with registry state
+            _isAutoStartEnabled = !enable;
+            OnPropertyChanged(nameof(IsAutoStartEnabled));
+        }
+    }
+
+    private void AutoStartMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+         // The IsChecked property binding should have already called the setter
+         // which in turn called SetAutoStart. No extra logic needed here unless
+         // the binding fails or we want confirmation.
+    }
+    // --------------------------------
+
+    private string? _initialMessageFromArgs = null; // Field to store message from args
+
+    // Modify constructor to accept optional initial message
+    public MainWindow(string initialMessage = "")
+    {
         InitializeComponent();
+        _initialMessageFromArgs = initialMessage; // Store the message
+
+        CheckAutoStartStatus();
+        EnsureAppDirectoryExists();
+        LoadSettings();
+        this.Loaded += MainWindow_Loaded;
         this.MouseLeftButtonDown += Window_MouseLeftButtonDown;
-        this.Loaded += MainWindow_Loaded; // Register Loaded event handler
 
         // --- Set Icon based on Theme ---
         BitmapImage iconSource = GetCurrentThemeIconSource();
@@ -602,6 +721,13 @@ public partial class MainWindow : MetroWindow
             // Handle error, maybe hotkey already registered
              MessageBox.Show("Could not register hotkey. It might be in use by another application.", "Hotkey Error", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+
+        // Process initial message after window is loaded and hotkey registered
+        if (!string.IsNullOrEmpty(_initialMessageFromArgs))
+        {
+            ProcessInitialMessage(_initialMessageFromArgs);
+            _initialMessageFromArgs = null; // Clear after processing
+        }
     }
 
     // --- Hotkey Message Handling ---
@@ -694,6 +820,28 @@ public partial class MainWindow : MetroWindow
             LoadSettings();
              Debug.WriteLine("Settings changes cancelled.");
         }
+    }
+
+    // Method to handle the initial message
+    private void ProcessInitialMessage(string message)
+    {
+         // Ensure the window is visible before sending
+        if (!this.IsVisible)
+        {
+            this.Show();
+            this.Activate();
+            this.WindowState = WindowState.Normal;
+        }
+
+        InputTextBox.Text = message; // Put message in the input box
+        // Simulate pressing Enter key to trigger the send logic
+        var inputSource = Keyboard.PrimaryDevice.ActiveSource ?? PresentationSource.FromVisual(InputTextBox);
+        var args = new KeyEventArgs(Keyboard.PrimaryDevice, inputSource, 0, Key.Enter)
+        {
+            RoutedEvent = TextBox.KeyDownEvent
+        };
+        InputTextBox.RaiseEvent(args);
+         Debug.WriteLine($"Processed command line argument message: {message}");
     }
 }
 

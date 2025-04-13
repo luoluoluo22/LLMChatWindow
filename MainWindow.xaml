@@ -32,6 +32,10 @@
             <tb:TaskbarIcon.ContextMenu>
                 <ContextMenu>
                     <MenuItem Header="显示/隐藏窗口" Click="ShowHideMenuItem_Click"/>
+                    <MenuItem Header="开机自启动" 
+                              IsCheckable="True" 
+                              IsChecked="{Binding IsAutoStartEnabled, Mode=TwoWay, RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}"
+                              Click="AutoStartMenuItem_Click"/>
                     <Separator/>
                     <MenuItem Header="退出" Click="ExitMenuItem_Click"/>
                 </ContextMenu>

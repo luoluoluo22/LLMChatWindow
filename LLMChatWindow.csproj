@@ -10,7 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="app_icon.ico" />
+    <None Remove="app_icon.png" />
   </ItemGroup>
 
   <ItemGroup>
@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <Resource Include="app_icon.ico" />
+    <Resource Include="app_icon.png" />
     <Resource Include="app_icon_light.ico" />
   </ItemGroup>
 

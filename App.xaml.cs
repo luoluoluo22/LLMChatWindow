@@ -2,7 +2,8 @@
 using System.Configuration;
 using System.Data;
 using System.Windows;
-using MahApps.Metro.Theming;
+using ControlzEx.Theming;
+using System.Linq; // For Linq operations like string.Join
 
 namespace LLMChatWindow;
 
@@ -15,12 +16,24 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        // Explicitly set the dark theme. 
-        // Using "Steel" as the accent, adjust if needed.
-        // ThemeManager.Current.ChangeTheme(this, "Dark.Steel"); // Build error persists, commenting out again.
+        // Set the theme (example using MahApps)
+        ThemeManager.Current.ChangeTheme(this, "Dark.Steel");
 
-        // Keep the previous attempt commented out for reference
-        // ThemeManager.Current.DetectTheme(true); 
+        string initialMessage = string.Empty;
+        if (e.Args.Length > 0)
+        {
+            // Combine all arguments into a single message string
+            initialMessage = string.Join(" ", e.Args);
+        }
+
+        // Pass the initial message to the MainWindow constructor
+        var mainWindow = new MainWindow(initialMessage);
+        // The MainWindow is already set as StartupUri in App.xaml,
+        // so we might not need to explicitly show it here if using StartupUri.
+        // However, passing parameters often requires manual instantiation.
+        // Let's remove StartupUri from App.xaml and show manually.
+        this.MainWindow = mainWindow;
+        mainWindow.Show();
     }
 }
 
