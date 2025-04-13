@@ -1,0 +1,45 @@
+<mah:MetroWindow x:Class="LLMChatWindow.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:LLMChatWindow"
+        xmlns:mah="http://metro.mahapps.com/winfx/xaml/controls"
+        mc:Ignorable="d"
+        Title="设置"
+        Width="450"
+        SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        GlowBrush="{DynamicResource MahApps.Brushes.Accent}"
+        FontFamily="Microsoft YaHei">
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Label Grid.Row="0" Content="API Key:" Margin="0,0,0,2"/>
+        <TextBox Grid.Row="0" x:Name="ApiKeyTextBox" Margin="0,25,0,10" mah:TextBoxHelper.Watermark="Enter your API Key"/>
+
+        <Label Grid.Row="1" Content="Base URL:" Margin="0,0,0,2"/>
+        <TextBox Grid.Row="1" x:Name="BaseUrlTextBox" Margin="0,25,0,10" mah:TextBoxHelper.Watermark="Enter the API Base URL"/>
+
+        <Label Grid.Row="2" Content="Model Name:" Margin="0,0,0,2"/>
+        <TextBox Grid.Row="2" x:Name="ModelNameTextBox" Margin="0,25,0,10" mah:TextBoxHelper.Watermark="Enter the Model Name"/>
+
+        <!-- Spacer -->
+        <Grid Grid.Row="3" MinHeight="20"/>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="SaveButton" Content="保存" Width="80" Margin="0,0,10,0" Click="SaveButton_Click" IsDefault="True" Style="{StaticResource MahApps.Styles.Button.Square.Accent}"/>
+            <Button x:Name="CancelButton" Content="取消" Width="80" Click="CancelButton_Click" IsCancel="True" Style="{StaticResource MahApps.Styles.Button.Square}"/>
+        </StackPanel>
+
+    </Grid>
+</mah:MetroWindow> 
