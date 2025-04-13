@@ -129,6 +129,18 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
 
     private HwndSource? _source;
 
+    // --- IPC Definitions (Matching App.xaml.cs) ---
+    internal const int WM_COPYDATA = 0x004A;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct COPYDATASTRUCT
+    {
+        public IntPtr dwData;
+        public int cbData;
+        public IntPtr lpData;
+    }
+    // ---------------------------------------------
+
     // --- INotifyPropertyChanged Implementation ---
     public event PropertyChangedEventHandler? PropertyChanged;
     protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
@@ -730,7 +742,7 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
         }
     }
 
-    // --- Hotkey Message Handling ---
+    // --- Hotkey & IPC Message Handling ---
     private IntPtr HwndHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         const int WM_HOTKEY = 0x0312;
@@ -743,6 +755,41 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
                         ToggleWindowVisibility(); // Call our existing toggle function
                         handled = true;
                         break;
+                }
+                break;
+
+            case WM_COPYDATA:
+                try
+                {
+                    Debug.WriteLine("WM_COPYDATA received.");
+                    // Use the class-level struct definition
+                    COPYDATASTRUCT cds = (COPYDATASTRUCT)Marshal.PtrToStructure(lParam, typeof(COPYDATASTRUCT));
+
+                    // Extract the string data (assuming Unicode as sent from App.xaml.cs)
+                    if (cds.cbData > 0)
+                    {
+                        byte[] dataBytes = new byte[cds.cbData];
+                        Marshal.Copy(cds.lpData, dataBytes, 0, cds.cbData);
+                        // Use Encoding.Unicode assuming the sender used it
+                        string receivedMessage = Encoding.Unicode.GetString(dataBytes);
+                        Debug.WriteLine($"Received message via WM_COPYDATA: {receivedMessage}");
+
+                        // Ensure processing happens on the UI thread if it modifies UI elements directly
+                        // ProcessInitialMessage already handles showing window and simulating key press,
+                        // which should implicitly run on the UI thread if called from the hook.
+                        // If ProcessInitialMessage were async, we'd need Dispatcher.InvokeAsync.
+                        ProcessInitialMessage(receivedMessage);
+                        handled = true;
+                    }
+                    else
+                    {
+                         Debug.WriteLine($"Invalid data size received in WM_COPYDATA: {cds.cbData}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"Error processing WM_COPYDATA: {ex.Message}");
+                    // Handle error appropriately
                 }
                 break;
         }
