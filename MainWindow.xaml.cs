@@ -869,16 +869,18 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
         }
     }
 
-    // Method to handle the initial message
+    // Method to handle the initial message or message received via IPC
     private void ProcessInitialMessage(string message)
     {
-         // Ensure the window is visible before sending
+         // Ensure the window is visible AND activated
         if (!this.IsVisible)
         {
             this.Show();
-            this.Activate();
-            this.WindowState = WindowState.Normal;
         }
+        // Always try to activate and restore if minimized, even if already visible
+        this.WindowState = WindowState.Normal; // Restore if minimized
+        this.Activate(); // Bring to foreground
+        InputTextBox.Focus(); // Try to focus input box
 
         InputTextBox.Text = message; // Put message in the input box
         // Simulate pressing Enter key to trigger the send logic
@@ -887,8 +889,9 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
         {
             RoutedEvent = TextBox.KeyDownEvent
         };
-        InputTextBox.RaiseEvent(args);
-         Debug.WriteLine($"Processed command line argument message: {message}");
+        // Ensure the event is raised after the textbox likely got focus
+        Dispatcher.InvokeAsync(() => InputTextBox.RaiseEvent(args), System.Windows.Threading.DispatcherPriority.Input);
+         Debug.WriteLine($"Processed incoming message: {message}");
     }
 }
 
