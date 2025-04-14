@@ -148,9 +148,9 @@ public partial class App : Application
             initialMessage = string.Join(" ", e.Args);
         }
 
+        // Instantiate MainWindow
         var mainWindow = new MainWindow(initialMessage);
         this.MainWindow = mainWindow;
-        mainWindow.Show();
     }
 
     private void App_Exit(object sender, ExitEventArgs e)

@@ -30,12 +30,15 @@
                         ToolTipText="AI Input Box"
                         TrayLeftMouseDown="MyNotifyIcon_TrayLeftMouseDown">
             <tb:TaskbarIcon.ContextMenu>
-                <ContextMenu>
+                <ContextMenu x:Name="TrayContextMenu">
                     <MenuItem Header="显示/隐藏窗口" Click="ShowHideMenuItem_Click"/>
-                    <MenuItem Header="开机自启动" 
-                              IsCheckable="True" 
-                              IsChecked="{Binding IsAutoStartEnabled, Mode=TwoWay, RelativeSource={RelativeSource AncestorType={x:Type local:MainWindow}}}"
+                    <MenuItem Header="开机自启动"
+                              IsCheckable="True"
+                              IsChecked="{Binding IsAutoStartEnabled, Mode=TwoWay}"
                               Click="AutoStartMenuItem_Click"/>
+                    <MenuItem Header="启动时隐藏窗口"
+                              IsCheckable="True"
+                              IsChecked="{Binding IsStartHiddenEnabled, Mode=TwoWay}"/>
                     <Separator/>
                     <MenuItem Header="退出" Click="ExitMenuItem_Click"/>
                 </ContextMenu>
@@ -50,11 +53,14 @@
                          Padding="8,0"
                          mah:TextBoxHelper.ClearTextButton="True"
                          mah:TextBoxHelper.UseFloatingWatermark="False"
-                         mah:TextBoxHelper.Watermark="输入你的问题或指令..."
+                         mah:TextBoxHelper.Watermark="输入你的问题或指令 (Enter 发送, Shift+Enter 换行)..." 
                          FontSize="18"
-                         Height="44"
-                         AcceptsReturn="False"
-                         KeyDown="InputTextBox_KeyDown"
+                         MinHeight="44" 
+                         MaxHeight="180" 
+                         AcceptsReturn="True" 
+                         TextWrapping="Wrap" 
+                         VerticalScrollBarVisibility="Auto" 
+                         PreviewKeyDown="InputTextBox_PreviewKeyDown"
                          BorderThickness="0"
                          VerticalContentAlignment="Center"
                          Foreground="#E1E1E1"/>

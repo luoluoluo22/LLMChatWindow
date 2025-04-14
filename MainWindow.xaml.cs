@@ -36,6 +36,7 @@ public class AppSettings
     public string ApiKey { get; set; } = ""; // Default to empty
     public string BaseUrl { get; set; } = "https://api.siliconflow.cn/v1"; // Keep a default
     public string ModelName { get; set; } = "Qwen/Qwen2.5-7B-Instruct"; // Keep a default
+    public bool StartHidden { get; set; } = false; // Add this property
 }
 
 /// <summary>
@@ -168,117 +169,107 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
         }
     }
 
-    private void CheckAutoStartStatus()
+    // --- Start Hidden Property and Logic ---
+    public bool IsStartHiddenEnabled
     {
-        try
+        get => _currentSettings.StartHidden;
+        set
         {
-            using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, false))
+            if (_currentSettings.StartHidden != value)
             {
-                object? value = key?.GetValue(AutoStartValueName);
-                // Check if the value exists and potentially matches the current executable path
-                // For simplicity, we just check if the value exists.
-                _isAutoStartEnabled = value != null;
-                OnPropertyChanged(nameof(IsAutoStartEnabled)); // Notify initial state
+                _currentSettings.StartHidden = value;
+                Debug.WriteLine($"IsStartHiddenEnabled changed in memory to: {value}");
+                SaveSettings();
+                OnPropertyChanged(nameof(IsStartHiddenEnabled));
             }
         }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Error checking auto-start status: {ex.Message}");
-            _isAutoStartEnabled = false; // Assume false on error
-             OnPropertyChanged(nameof(IsAutoStartEnabled));
-        }
     }
-
-    private void SetAutoStart(bool enable)
-    {
-        try
-        {
-            using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, true)) // Open with write access
-            {
-                if (key == null)
-                {
-                    Debug.WriteLine("Could not open Run registry key for writing.");
-                    return;
-                }
-
-                // Use Process.GetCurrentProcess().MainModule.FileName for potentially more reliable path,
-                // especially if not running directly from .exe location (like during debugging).
-                // Fallback to Assembly location if MainModule is null.
-                string? executablePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
-                if(string.IsNullOrEmpty(executablePath))
-                {
-                    executablePath = Assembly.GetExecutingAssembly().Location;
-                     // For ClickOnce, Location might still be the AppManifest. A truly robust solution
-                     // for ClickOnce would involve finding the .appref-ms shortcut.
-                     // Let's keep this simpler version for now.
-                }
-
-                if (string.IsNullOrEmpty(executablePath))
-                {
-                     Debug.WriteLine("Could not determine executable path for auto-start.");
-                     return;
-                }
-
-                if (enable)
-                {
-                    // Correct syntax for string interpolation with literal quotes inside:
-                    key.SetValue(AutoStartValueName, $"\"{executablePath}\"");
-                    Debug.WriteLine($"Enabled auto-start: Added registry value '{AutoStartValueName}' with path '{executablePath}'.");
-                }
-                else
-                {
-                    if (key.GetValue(AutoStartValueName) != null)
-                    {
-                         key.DeleteValue(AutoStartValueName, false); // Do not throw if not found
-                         Debug.WriteLine($"Disabled auto-start: Removed registry value '{AutoStartValueName}'.");
-                    }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Error setting auto-start status: {ex.Message}");
-            MessageBox.Show($"Failed to update auto-start setting: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            // Revert the property change to keep UI consistent with registry state
-            _isAutoStartEnabled = !enable;
-            OnPropertyChanged(nameof(IsAutoStartEnabled));
-        }
-    }
-
-    private void AutoStartMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-         // The IsChecked property binding should have already called the setter
-         // which in turn called SetAutoStart. No extra logic needed here unless
-         // the binding fails or we want confirmation.
-    }
-    // --------------------------------
+    // ------------------------------------
 
     private string? _initialMessageFromArgs = null; // Field to store message from args
 
     // Modify constructor to accept optional initial message
     public MainWindow(string initialMessage = "")
     {
-        InitializeComponent();
-        _initialMessageFromArgs = initialMessage; // Store the message
-
-        CheckAutoStartStatus();
+        // 1. Load Settings FIRST
         EnsureAppDirectoryExists();
         LoadSettings();
+        Debug.WriteLine($"Loaded settings. StartHidden = {_currentSettings.StartHidden}");
+
+        // 2. Initialize Components
+        InitializeComponent();
+        Debug.WriteLine("InitializeComponent completed.");
+        _initialMessageFromArgs = initialMessage;
+
+        // 3. Apply StartHidden Setting Immediately and Control Visibility
+        if (_currentSettings.StartHidden)
+        {
+            Debug.WriteLine("Settings indicate starting hidden. Setting Visibility=Hidden.");
+            this.Visibility = Visibility.Hidden;
+            Debug.WriteLine($"Initial Window Visibility set to: {this.Visibility}");
+            // No Show() call needed
+        }
+        else
+        {
+             Debug.WriteLine("Settings indicate starting visible.");
+             // Explicitly show the window instead of relying on default behavior
+             Debug.WriteLine("Calling this.Show()...");
+             this.Show();
+             Debug.WriteLine($"Called this.Show(). Current Visibility: {this.Visibility}, IsVisible: {this.IsVisible}");
+
+             // Setup things needed only for visible start:
+             Debug.WriteLine("Focusing InputTextBox...");
+             InputTextBox.Focus();
+             Debug.WriteLine("Scheduling ScrollToEnd...");
+             Dispatcher.InvokeAsync(() =>
+             {
+                Debug.WriteLine("Executing ScrollToEnd...");
+                ResponseScrollViewer.ScrollToEnd();
+                Debug.WriteLine("ScrollToEnd executed.");
+             }, DispatcherPriority.Loaded);
+
+             if (!string.IsNullOrEmpty(_initialMessageFromArgs))
+             {
+                 Debug.WriteLine("Scheduling ProcessInitialMessage...");
+                 Dispatcher.InvokeAsync(() =>
+                 {
+                     Debug.WriteLine("Executing ProcessInitialMessage...");
+                     ProcessInitialMessage(_initialMessageFromArgs);
+                     Debug.WriteLine("ProcessInitialMessage executed.");
+                 }, DispatcherPriority.ContextIdle);
+                 _initialMessageFromArgs = null;
+             }
+             Debug.WriteLine("Visible startup setup complete.");
+        }
+
+        CheckAutoStartStatus();
+
+        // Add Loaded event AFTER InitializeComponent and potential visibility setting
         this.Loaded += MainWindow_Loaded;
         this.MouseLeftButtonDown += Window_MouseLeftButtonDown;
 
-        // --- Set Icon based on Theme ---
+        // --- Set Icon based on Theme & Set DataContext for Tray ---
         BitmapImage iconSource = GetCurrentThemeIconSource();
-        this.Icon = iconSource; // Set window icon
+        this.Icon = iconSource;
         if (MyNotifyIcon != null)
         {
-            MyNotifyIcon.IconSource = iconSource; // Set tray icon
+            MyNotifyIcon.IconSource = iconSource;
+            MyNotifyIcon.DataContext = this; // For potential direct bindings on the icon itself
+            if (TrayContextMenu != null) // Ensure ContextMenu exists
+            {
+                 TrayContextMenu.DataContext = this; // Set DC for menu items
+                 Debug.WriteLine("TrayContextMenu.DataContext set.");
+            }
+            else
+            {
+                 Debug.WriteLine("TrayContextMenu not found!");
+            }
         }
-        // -------------------------------
+        // ----------------------------------------------------------
 
         // --- Initialize HttpClient with loaded settings ---
         _httpClient = new HttpClient();
-        UpdateHttpClientAuthHeader(); // Set auth header initially
+        UpdateHttpClientAuthHeader();
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         // ----------------------------------------------------
@@ -294,17 +285,11 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
             "如何学习 C#？"
         };
 
-        LoadChatHistory(); // Load history after components are initialized
-        // Bind the ObservableCollection directly to the ItemsControl
+        LoadChatHistory();
         ChatHistoryItemsControl.ItemsSource = _chatHistory;
-        // Removed call to DisplayHistory() as binding handles it.
-        UpdateWatermark(); // Set initial watermark
-
-        // 让输入框在启动时获得焦点
-        InputTextBox.Focus();
-
-        // Scroll to end after loading history (ensure layout is updated first)
-        Dispatcher.InvokeAsync(() => ResponseScrollViewer.ScrollToEnd(), DispatcherPriority.Loaded);
+        UpdateWatermark();
+        OnPropertyChanged(nameof(IsStartHiddenEnabled));
+        Debug.WriteLine("MainWindow constructor finished.");
     }
 
     private void EnsureAppDirectoryExists()
@@ -447,26 +432,40 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
         // We could add logic here if needed, e.g., hide/show response area based on input
     }
 
-    // 输入框按键事件处理 - Make async void to use await
-    private async void InputTextBox_KeyDown(object sender, KeyEventArgs e)
+    // Renamed method to handle PreviewKeyDown event
+    private async void InputTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Enter)
+        // --- Debugging --- 
+        Debug.WriteLine($"PreviewKeyDown: Key={e.Key}, Modifiers={Keyboard.Modifiers}");
+        // -----------------
+
+        // Check if ONLY Enter is pressed (Send message)
+        if (e.Key == Key.Enter && Keyboard.Modifiers != ModifierKeys.Shift)
         {
+            // Get the text and check if empty *before* handling the event
             string inputText = InputTextBox.Text.Trim();
-            if (string.IsNullOrEmpty(inputText)) return;
+            if (string.IsNullOrEmpty(inputText))
+            {
+                // If input is empty, don't handle the Enter key,
+                // allowing potential default behavior or just doing nothing.
+                e.Handled = false; // Explicitly ensure not handled
+                return;
+            }
+
+            // If we have text and Enter was pressed without Shift, handle it.
+            e.Handled = true; // Prevent Enter from adding a newline NOW.
 
             ChatMessage userMessage = new ChatMessage("user", inputText);
-            // Initialize placeholder with empty content, it will be filled incrementally
             ChatMessage assistantMessagePlaceholder = new ChatMessage("assistant", "");
 
-            // Add messages and save on UI thread
-            await Dispatcher.InvokeAsync(async () =>
+            // Add messages and clear input on UI thread
+            await Dispatcher.InvokeAsync(() =>
             {
                 _chatHistory.Add(userMessage);
                 ResponseScrollViewer.ScrollToEnd();
-                InputTextBox.IsEnabled = false; // Disable input while waiting
-                InputTextBox.Text = "";
-                _chatHistory.Add(assistantMessagePlaceholder); // Add empty placeholder
+                InputTextBox.IsEnabled = false;
+                InputTextBox.Text = ""; // Clear input after sending
+                _chatHistory.Add(assistantMessagePlaceholder);
                 ResponseScrollViewer.ScrollToEnd();
             });
 
@@ -476,7 +475,6 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
             _ = Task.Run(async () =>
             {
                 string? errorMessage = null;
-
                 try
                 {
                     // Action to append delta to placeholder content on UI thread
@@ -487,8 +485,6 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
                              await Dispatcher.InvokeAsync(() =>
                              {
                                  assistantMessagePlaceholder.Content += delta; // Append content
-                                 // Auto-scrolling during streaming can be disruptive, scroll at end?
-                                 // Or scroll only if the scrollbar is already near the bottom.
                                  if (ResponseScrollViewer.VerticalOffset + ResponseScrollViewer.ViewportHeight >= ResponseScrollViewer.ExtentHeight - 30) // Check if near bottom
                                  {
                                       ResponseScrollViewer.ScrollToEnd();
@@ -499,8 +495,8 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
 
                     await GetStreamingAiResponseAsync(historyCopyForAI, appendDeltaAction);
 
-                    // ADD SaveChatHistoryAsync() here, after response is complete
-                    if (!string.IsNullOrEmpty(assistantMessagePlaceholder.Content))
+                    // Save history after AI response completion
+                    if (!string.IsNullOrEmpty(assistantMessagePlaceholder.Content) && !assistantMessagePlaceholder.Content.StartsWith("[Error")) // Don't save if it's just an error message
                     {
                         await SaveChatHistoryAsync();
                         Debug.WriteLine("Chat history saved after AI response completion.");
@@ -508,35 +504,21 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
                     else if (string.IsNullOrEmpty(assistantMessagePlaceholder.Content))
                     {
                          // Handle cases where AI returned nothing or failed silently
-                         // Maybe remove the empty placeholder?
                          await Dispatcher.InvokeAsync(() => _chatHistory.Remove(assistantMessagePlaceholder));
                          Debug.WriteLine("Removed empty assistant placeholder as no response received.");
-                         // Optionally save again if you removed the placeholder
-                         // await SaveChatHistoryAsync();
                     }
 
                 }
-                catch (HttpRequestException httpEx)
-                {
-                    errorMessage = $"Network error: {httpEx.Message}";
-                }
-                catch (JsonException jsonEx)
-                {
-                    errorMessage = $"Error parsing response: {jsonEx.Message}";
-                }
-                catch (Exception ex)
-                {
-                    errorMessage = $"An error occurred: {ex.Message}";
-                }
+                catch (HttpRequestException httpEx) { errorMessage = $"Network error: {httpEx.Message}"; }
+                catch (JsonException jsonEx) { errorMessage = $"Error parsing response: {jsonEx.Message}"; }
+                catch (Exception ex) { errorMessage = $"An error occurred: {ex.Message}"; }
                 finally
                 {
-                    // --- Final UI Update/Cleanup on UI Thread ---
+                    // Final UI Update/Cleanup
                     await Dispatcher.InvokeAsync(() =>
                     {
-                        // If error occurred OR no response content was received, show error/message
                         if (errorMessage != null)
                         {
-                             // If placeholder is still empty, set error. Otherwise, append error.
                              if (string.IsNullOrEmpty(assistantMessagePlaceholder.Content))
                                 assistantMessagePlaceholder.Content = $"Error: {errorMessage}";
                              else
@@ -544,11 +526,9 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
                         }
                         else if (string.IsNullOrEmpty(assistantMessagePlaceholder.Content))
                         {
-                             // Handle case where stream finished but no content/error was processed
                              assistantMessagePlaceholder.Content = "[No response or empty response received]";
                         }
-
-                        ResponseScrollViewer.ScrollToEnd(); // Final scroll to end
+                        ResponseScrollViewer.ScrollToEnd();
                         InputTextBox.IsEnabled = true;
                         InputTextBox.Focus();
                         UpdateWatermark();
@@ -556,6 +536,8 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
                 }
             });
         }
+        // If Shift + Enter is pressed, the condition is false,
+        // e.Handled remains false, and the TextBox handles the newline insertion later.
     }
 
 
@@ -677,7 +659,23 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
 
     private void ShowHideMenuItem_Click(object sender, RoutedEventArgs e)
     {
-        ToggleWindowVisibility();
+        if (this.IsVisible)
+        {
+            Debug.WriteLine("ShowHideMenuItem_Click: Window is visible, calling Hide().");
+            this.Hide();
+            Debug.WriteLine($"ShowHideMenuItem_Click: After Hide(), Visibility: {this.Visibility}, IsVisible: {this.IsVisible}");
+        }
+        else
+        {
+            Debug.WriteLine("ShowHideMenuItem_Click: Window is hidden, calling Show().");
+            this.Show();
+            Debug.WriteLine($"ShowHideMenuItem_Click: After Show(), Visibility: {this.Visibility}, IsVisible: {this.IsVisible}");
+            Debug.WriteLine("ShowHideMenuItem_Click: Calling Activate()...");
+            this.Activate(); // Bring to front
+            Debug.WriteLine("ShowHideMenuItem_Click: Activate() called.");
+            InputTextBox.Focus(); // Focus input
+            Debug.WriteLine("ShowHideMenuItem_Click: InputTextBox focused.");
+        }
     }
 
     private void ExitMenuItem_Click(object sender, RoutedEventArgs e)
@@ -839,33 +837,23 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
     // --- Settings Button Click Handler ---
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
-        // Create a deep copy if you want cancel to truly discard changes
-        // For simplicity now, we pass the live object
         var settingsWindow = new SettingsWindow(_currentSettings);
-
-        // Show the window modally and check the result
         bool? result = settingsWindow.ShowDialog();
 
         if (result == true)
         {
-            // Settings were saved in SettingsWindow, now save them to file
             SaveSettings();
-
-            // Update things that depend on settings, e.g., HttpClient header
             UpdateHttpClientAuthHeader();
-
-            // Optional: Notify UI elements if they need to update (e.g., ModelName display)
-            // This requires implementing INotifyPropertyChanged on MainWindow or finding another update mechanism.
-            // For now, the RolePrefix binding uses RelativeSource, it *might* update automatically,
-            // but explicit notification is more robust.
+            OnPropertyChanged(nameof(ModelName)); // Notify ModelName changed
+            OnPropertyChanged(nameof(IsStartHiddenEnabled)); // Notify StartHidden changed
             Debug.WriteLine("Settings saved and applied.");
         }
         else
         {
-            // Settings were cancelled, reload from file to discard changes made in the settings object
-            // (Only necessary if we passed the live object and want true cancel)
-            LoadSettings();
-             Debug.WriteLine("Settings changes cancelled.");
+            LoadSettings(); // Reload settings on cancel
+            OnPropertyChanged(nameof(ModelName)); // Notify ModelName reverted
+            OnPropertyChanged(nameof(IsStartHiddenEnabled)); // Notify StartHidden reverted
+            Debug.WriteLine("Settings changes cancelled.");
         }
     }
 
@@ -892,6 +880,107 @@ public partial class MainWindow : MetroWindow, INotifyPropertyChanged
         // Ensure the event is raised after the textbox likely got focus
         Dispatcher.InvokeAsync(() => InputTextBox.RaiseEvent(args), System.Windows.Threading.DispatcherPriority.Input);
          Debug.WriteLine($"Processed incoming message: {message}");
+    }
+
+    // Helper method to get the expected path (consistent with SetAutoStart)
+    private string? GetExpectedAutoStartPath()
+    {
+        string? executablePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+        if (string.IsNullOrEmpty(executablePath))
+        {
+            executablePath = Assembly.GetExecutingAssembly().Location;
+        }
+        return executablePath;
+    }
+
+    private void CheckAutoStartStatus()
+    {
+        try
+        {
+            string? currentPath = GetExpectedAutoStartPath();
+            if (string.IsNullOrEmpty(currentPath))
+            {
+                _isAutoStartEnabled = false;
+                OnPropertyChanged(nameof(IsAutoStartEnabled));
+                Debug.WriteLine("Could not determine executable path for auto-start check.");
+                return;
+            }
+
+            using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, false))
+            {
+                object? value = key?.GetValue(AutoStartValueName);
+                if (value is string registeredPath)
+                {
+                    string pathInRegistry = registeredPath.Trim('"');
+                    _isAutoStartEnabled = string.Equals(pathInRegistry, currentPath, StringComparison.OrdinalIgnoreCase);
+                }
+                else
+                {
+                    _isAutoStartEnabled = false;
+                }
+                OnPropertyChanged(nameof(IsAutoStartEnabled));
+                Debug.WriteLine($"Auto-start status checked. Enabled: {_isAutoStartEnabled}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Error checking auto-start status: {ex.Message}");
+            _isAutoStartEnabled = false;
+             OnPropertyChanged(nameof(IsAutoStartEnabled));
+        }
+    }
+
+    private void SetAutoStart(bool enable)
+    {
+        try
+        {
+            using (RegistryKey? key = Registry.CurrentUser.OpenSubKey(AutoStartRegistryKey, true))
+            {
+                if (key == null) { /* ... null check ... */ return; }
+
+                string? executablePath = GetExpectedAutoStartPath();
+                if (string.IsNullOrEmpty(executablePath)) { /* ... null check ... */ return; }
+
+                if (enable)
+                {
+                    key.SetValue(AutoStartValueName, $"\"{executablePath}\"");
+                    Debug.WriteLine($"Enabled auto-start: Set registry value '{AutoStartValueName}' to '\"{executablePath}\"'.");
+                }
+                else
+                {
+                    object? currentValue = key.GetValue(AutoStartValueName);
+                    if (currentValue is string registeredPath)
+                    {
+                         string pathInRegistry = registeredPath.Trim('"');
+                         if (string.Equals(pathInRegistry, executablePath, StringComparison.OrdinalIgnoreCase))
+                         {
+                             key.DeleteValue(AutoStartValueName, false);
+                             Debug.WriteLine($"Disabled auto-start: Removed registry value '{AutoStartValueName}'.");
+                         }
+                         else
+                         {
+                              Debug.WriteLine($"Disabled auto-start: Registry value path '{pathInRegistry}' did not match expected path '{executablePath}'. Value not removed.");
+                         }
+                    }
+                    else if (currentValue != null) {/* Optionally delete non-string */} else { Debug.WriteLine($"Disabled auto-start: Registry value '{AutoStartValueName}' not found.");}
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+             Debug.WriteLine($"Error setting auto-start status: {ex.Message}");
+             MessageBox.Show($"Failed to update auto-start setting: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            _isAutoStartEnabled = !enable;
+            OnPropertyChanged(nameof(IsAutoStartEnabled));
+        }
+    }
+
+    // Add back the empty event handler to satisfy XAML reference
+    private void AutoStartMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+         // Logic is handled by the IsChecked binding calling the IsAutoStartEnabled property setter.
+         // No code needed here unless providing additional feedback or confirmation.
+         Debug.WriteLine($"AutoStart menu item clicked. State handled by binding: {IsAutoStartEnabled}");
     }
 }
 
